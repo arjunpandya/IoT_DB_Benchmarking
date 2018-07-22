@@ -1,11 +1,10 @@
 package com.iot.sensors;
-
-import java.sql.Date;
-import java.time.LocalDateTime;
-import java.time.format.*;
-import java.util.Random;
+/*
+Author: Arjun Pandya
+Date: 2018-07-09
+Purpose: This class represents Relative Humidity sensor.
+ */
 import java.util.StringTokenizer;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bson.Document;
 
 public class RHSensor {

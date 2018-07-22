@@ -1,16 +1,11 @@
 package com.iot.sensors;
-
+/*
+Author: Arjun Pandya
+Date: 2018-07-09
+Purpose: This class represents Pressure sensor.
+ */
 import org.bson.Document;
-
 import java.util.StringTokenizer;
-
-import java.time.LocalDateTime;
-import java.time.format.*;
-import java.util.Random;
-import java.util.StringTokenizer;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.bson.Document;
-
 
 public class PressureSensor {
 

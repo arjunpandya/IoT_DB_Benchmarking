@@ -1,4 +1,10 @@
 package com.iot.dbs.mogodb;
+/*
+Author: Arjun Pandya
+Date: 2018-07-09
+Purpose: This program will continuously looks for messages posted under the topic for Temperature sensor
+         and stores it into provided MongoDB collection.
+ */
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.iot.sensors.*;
@@ -16,38 +22,61 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.lang.reflect.Type;
 
 public class TsensorImport {
     public static void main(String args[]) {
+        Properties sysprop = new Properties();
+        InputStream input = null;
+        int port = 0;
+        String brokerList = null;
+        String topic = null;
+        String mongoDB = null;
+        String mongoCol = null;
+
+        try {
+
+            input = new FileInputStream("resources/config.properties");
+
+            // load a properties file
+            sysprop.load(input);
+
+            brokerList = sysprop.getProperty("MONGO_PRODUCER");
+            port = Integer.parseInt(sysprop.getProperty("ZOOKEEPER_PORT"));
+            topic = sysprop.getProperty("TSENSOR_TOPIC");
+            mongoDB = sysprop.getProperty("MONGO_DATABASE");
+            mongoCol = sysprop.getProperty("TSENSOR_SCHEMA");
+
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        } finally {
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
         TsensorImport example = new TsensorImport();
-        //long maxReads = Long.parseLong(args[0]);
         long maxReads = 500;
-        //String topic = args[1];
-        String topic = "run3_mtsensor";
-        //int partition = Integer.parseInt(args[2]);
         int partition = 0;
         List<String> seeds = new ArrayList<String>();
-        //seeds.add(args[3]);
-        seeds.add("10.0.0.20");
-        //int port = Integer.parseInt(args[4]);
-        int port = 9092;
-//        for(int t =1; t < 60; t++){
+        seeds.add(brokerList);
             try {
-                example.run(maxReads, topic, partition, seeds, port);
+                example.run(maxReads, topic, partition, seeds, port,mongoDB,mongoCol);
             } catch (Exception e) {
                 System.out.println("Oops:" + e);
                 e.printStackTrace();
             }
-//        }
     }
 
     private List<String> m_replicaBrokers = new ArrayList<String>();
@@ -57,7 +86,7 @@ public class TsensorImport {
     }
 
     public void run(long a_maxReads, String a_topic, int a_partition,
-                    List<String> a_seedBrokers, int a_port) throws Exception {
+                    List<String> a_seedBrokers, int a_port, String a_DB, String a_Collection) throws Exception {
         // find the meta data about the topic and partition we are interested in
         //
         PartitionMetadata metadata = findLeader(a_seedBrokers, a_port, a_topic, a_partition);
@@ -80,8 +109,8 @@ public class TsensorImport {
         int numErrors = 0;
 
         MongoClient client = new MongoClient();
-        MongoDatabase db = client.getDatabase("sensor_run3");
-        MongoCollection<Document> tsensorCollection = db.getCollection("tsensor");
+        MongoDatabase db = client.getDatabase(a_DB); // Database
+        MongoCollection<Document> tsensorCollection = db.getCollection(a_Collection); // Collection
         Gson tgson = new Gson();
         Type ttype = new TypeToken<TempSensor>() {}.getType();
 

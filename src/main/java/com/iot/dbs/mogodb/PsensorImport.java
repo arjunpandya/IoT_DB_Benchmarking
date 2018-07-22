@@ -1,5 +1,10 @@
 package com.iot.dbs.mogodb;
-
+/*
+Author: Arjun Pandya
+Date: 2018-07-09
+Purpose: This program will continuously looks for messages posted under the topic for Pressure sensor
+         and stores it into provided MongoDB collection.
+ */
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.iot.sensors.*;
@@ -17,38 +22,61 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.lang.reflect.Type;
 
 public class PsensorImport {
     public static void main(String args[]) {
-        PsensorImport example = new PsensorImport();
-        //long maxReads = Long.parseLong(args[0]);
-        long maxReads = 1000;
-        //String topic = args[1];
-        String topic = "run3_mpsensor"; // Topic name you want to ingest
-        //int partition = Integer.parseInt(args[2]);
+        Properties sysprop = new Properties();
+        InputStream input = null;
+        int port = 0;
+        String brokerList = null;
+        String topic = null;
+        String mongoDB = null;
+        String mongoCol = null;
+
+        try {
+
+            input = new FileInputStream("resources/config.properties");
+
+            // load a properties file
+            sysprop.load(input);
+
+            brokerList = sysprop.getProperty("MONGO_PRODUCER");
+            port = Integer.parseInt(sysprop.getProperty("ZOOKEEPER_PORT"));
+            topic = sysprop.getProperty("PSENSOR_TOPIC");
+            mongoDB = sysprop.getProperty("MONGO_DATABASE");
+            mongoCol = sysprop.getProperty("PSENSOR_SCHEMA");
+
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        } finally {
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        TsensorImport example = new TsensorImport();
+        long maxReads = 500;
         int partition = 0;
         List<String> seeds = new ArrayList<String>();
-        //seeds.add(args[3]);
-        seeds.add("10.0.0.20"); //kafka n2 node
-        //int port = Integer.parseInt(args[4]);
-        int port = 9092;
-//        for(int t =1; t < 60; t++){
-            try {
-                example.run(maxReads, topic, partition, seeds, port);
-            } catch (Exception e) {
-                System.out.println("Oops:" + e);
-                e.printStackTrace();
-            }
-//        }
+        seeds.add(brokerList);
+        try {
+            example.run(maxReads, topic, partition, seeds, port,mongoDB,mongoCol);
+        } catch (Exception e) {
+            System.out.println("Oops:" + e);
+            e.printStackTrace();
+        }
     }
 
     private List<String> m_replicaBrokers = new ArrayList<String>();
@@ -58,7 +86,7 @@ public class PsensorImport {
     }
 
     public void run(long a_maxReads, String a_topic, int a_partition,
-                    List<String> a_seedBrokers, int a_port) throws Exception {
+                    List<String> a_seedBrokers, int a_port, String a_DB, String a_Collection) throws Exception {
         // find the meta data about the topic and partition we are interested in
         //
         PartitionMetadata metadata = findLeader(a_seedBrokers, a_port, a_topic, a_partition);
@@ -78,14 +106,15 @@ public class PsensorImport {
         long readOffset = getLastOffset(consumer,a_topic, a_partition,
                 kafka.api.OffsetRequest.EarliestTime(), clientName);
 
-        MongoClient client = new MongoClient();
-        MongoDatabase db = client.getDatabase("sensor_run3"); // Change the database for each experiment
-        MongoCollection<Document> psensorCollection = db.getCollection("psensor"); //Do not change the collection name
-
-        Gson pgson = new Gson();
-        Type ptype = new TypeToken<PressureSensor>() {}.getType();
-
         int numErrors = 0;
+
+        MongoClient client = new MongoClient();
+        MongoDatabase db = client.getDatabase(a_DB); // Database
+        MongoCollection<Document> tsensorCollection = db.getCollection(a_Collection); // Collection
+        Gson tgson = new Gson();
+        Type ttype = new TypeToken<TempSensor>() {}.getType();
+
+
         while (a_maxReads > 0) {
             if (consumer == null) {
                 consumer = new SimpleConsumer(leadBroker, a_port,
@@ -125,7 +154,7 @@ public class PsensorImport {
                 if (currentOffset < readOffset) {
                     System.out.println("Found an old offset: " + currentOffset
                             + " Expecting: " + readOffset);
-                    a_maxReads =0;
+                    a_maxReads = 0;
                     continue;
                 }
                 readOffset = messageAndOffset.nextOffset();
@@ -136,11 +165,11 @@ public class PsensorImport {
                 //System.out.println("Test message "+ messageAndOffset.message().toString());
                 //System.out.println(new String(bytes));
 //              Sensors
-                PressureSensor p = pgson.fromJson(new String(bytes,"UTF-8"),ptype);
+                TempSensor t = tgson.fromJson(new String(bytes,"UTF-8"),ttype);
 
-                Document pdoc = new Document(p.getPressureAsDocument());
-                pdoc.put("receivedTime",LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSS")));
-                psensorCollection.insertOne(pdoc);
+                Document tdoc = new Document(t.getTemperatureAsDocument());
+                tdoc.put("receivedTime",LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSS")));
+                tsensorCollection.insertOne(tdoc);
 
                 numRead++;
 //                a_maxReads--;
@@ -153,7 +182,6 @@ public class PsensorImport {
                 }
             }
         }
-        client.close();
         if (consumer != null) consumer.close();
     }
 
@@ -212,7 +240,7 @@ public class PsensorImport {
         for (String seed : a_seedBrokers) {
             SimpleConsumer consumer = null;
             try {
-                consumer = new SimpleConsumer(seed, a_port, 2000000000, 1024 * 1024, "leaderLookup");
+                consumer = new SimpleConsumer(seed, a_port, 10000000, 1024 * 1024, "leaderLookup");
                 List<String> topics = Collections.singletonList(a_topic);
                 TopicMetadataRequest req = new TopicMetadataRequest(topics);
                 kafka.javaapi.TopicMetadataResponse resp = consumer.send(req);
@@ -243,5 +271,3 @@ public class PsensorImport {
         return returnMetaData;
     }
 }
-
-
